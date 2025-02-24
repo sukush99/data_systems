@@ -1,0 +1,41 @@
+# Builder stage
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+RUN apt-get update && apt-get install -y \
+    gcc \
+    build-essential \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && \
+    tar -xzf ta-lib-0.4.0-src.tar.gz && \
+    cd ta-lib/ && \
+    ./configure --prefix=/usr --build=aarch64-unknown-linux-gnu && \
+    make && \
+    make install && \
+    cd .. && \
+    rm -rf ta-lib*
+
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+WORKDIR /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --frozen --no-install-project --no-dev
+ADD . /app
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+
+# Final stage
+FROM python:3.12-slim-bookworm
+
+# Copy application and shared libraries
+COPY --from=builder --chown=app:app /app /app
+COPY --from=builder /usr/lib/libta_lib.so.0 /usr/lib/
+COPY --from=builder /usr/local/lib/ /usr/local/lib/
+
+# Set library path
+ENV PATH="/app/.venv/bin:$PATH" \
+    LD_LIBRARY_PATH="/usr/lib:/usr/local/lib:$LD_LIBRARY_PATH"
+
+# Run the FastAPI application by default
+CMD ["python", "/app/run.py"]

@@ -4,4 +4,4 @@ daily-run-dev:
 
 backfill-run-dev:
 	cat local_backfill.env api_key.env > settings.env
-	uv run backfill.py
+	uv run run.py

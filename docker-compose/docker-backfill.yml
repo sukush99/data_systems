@@ -1,0 +1,10 @@
+name: docker-backfill
+services:
+  docker-backfill:
+    build:
+      context: ../EOD_Data
+      dockerfile: Dockerfile
+    env_file:
+      - ../EOD_Data/local_backfill.env
+      - ../EOD_Data/api_key.env
+    restart: no
