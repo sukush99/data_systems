@@ -25,28 +25,18 @@ def main(
         logger.info(f"Fetching stock data for company: {company} from source: {data_source}")
         
         try:
-            # Log before making the API call
-            logger.debug(f"Making API call for company: {company} with access_key: {config.api_access_key}")
             
             # Fetch stock data
-            stock_data = fetch_stock_data(
+            fetch_stock_data(
                 access_key=config.api_access_key, symbol=company
             )
-            
-            if stock_data:
-                # Log successful data fetch
-                logger.info(f"Successfully fetched data for company: {company}")
-            else:
-                # Log warning if no data is returned
-                logger.warning(f"No data returned for company: {company} from source: {data_source}")
+
         
         except Exception as e:
             # Log error if something goes wrong
             logger.error(f"Error fetching stock data for company: {company} from source: {data_source}. Error: {str(e)}")
             continue  # Skip to the next company in case of error
         
-        # Log that the company data has been processed
-        logger.info(f"Completed processing for company: {company}")
 
     # Log the completion of the main function
     logger.info(f"Completed data fetch for all companies using data source: {data_source}")
@@ -62,4 +52,4 @@ if __name__ == "__main__":
         company_list=config.company_list,
         data_source=config.data_source,
     )
-    logger.info("Main process finished.")
+

@@ -3,13 +3,13 @@ name: docker-daily
 services:
   docker-daily:
     build:
-      context: ../EOD_Data
+      context: ..services/EOD_Data
       dockerfile: Dockerfile
       # Use the host network during build (equivalent to --network=host)
       network: host
     # Use the host's network at runtime
     network_mode: host
     env_file:
-      - ../EOD_Data/local_daily.env
-      - ../EOD_Data/api_key.env
+      - ..services/EOD_Data/local_daily.env
+      - ..services/EOD_Data/api_key.env
     restart: no

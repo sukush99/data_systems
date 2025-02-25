@@ -1,9 +1,9 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Literal, Optional
 
-class Config(BaseSettings):
+class AzureConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file="conn.env", env_file_encoding="utf-8"
+        env_file="azure_conn/conn.env", env_file_encoding="utf-8"
     )
 
     account_storage: str
@@ -14,6 +14,7 @@ class Config(BaseSettings):
     database_name: str
     server_name: str
     container_name: str
+    archive_container_name: str
 
 
-config = Config()
+config = AzureConfig()

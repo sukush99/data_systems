@@ -14,4 +14,6 @@ dependencies = [
     "ta-lib>=0.6.3",
     "requests>=2.32.3",
     "tqdm>=4.67.1",
+    "azure-identity>=1.20.0",
+    "azure-storage-blob>=12.24.1",
 ]

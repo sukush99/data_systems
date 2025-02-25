@@ -4,7 +4,7 @@ import numpy as np
 
 
 # First create individual Series/DataFrames for each indicator
-def calculate_technical_indicators(df):
+def calculate_technical_indicators(df) -> dict:
     df = pd.DataFrame(df)
     df = df.iloc[::-1]
 

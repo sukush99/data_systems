@@ -5,18 +5,7 @@ from config import config
 from TA_addon import calculate_technical_indicators
 import pandas as pd
 from tqdm import tqdm as p_bar
-
-def save_data_to_csv(processed_data, filename="processed_data.csv"):
-    try:
-        # Convert processed_data (list of dictionaries) to a DataFrame
-        df = pd.DataFrame(processed_data)
-        
-        # Save the DataFrame to a CSV file
-        df.to_csv(filename, index=False)
-        logger.info(f"Data successfully saved to {filename}")
-    except Exception as e:
-        logger.error(f"Error saving data to CSV: {e}")
-
+from azure_conn.connection import ConnectToAzure
 
 def process_data(data: dict):
     grouped_data = []
@@ -79,46 +68,59 @@ def fetch_stock_data(access_key: str, symbol: str):
             return None
     
     elif config.data_source == "backfill":
-        OFFSETS = config.offsets if hasattr(config, "offsets") else [1, 92, 183, 274]
-        CACHE_KEY_BASE = f"stock_data_{symbol}"
-        combined_data = []
+        #TODO: first check if the archivce folder has the historical data fill
+        blob_exists = check_archive(f"{symbol}_historical_data.csv")
+        if blob_exists:
+            logger.info(f"Data already exists for {symbol}. Skipping backfill.")
+            return True
+        else:
+            OFFSETS = config.offsets if hasattr(config, "offsets") else [1, 92, 183, 274]
+            CACHE_KEY_BASE = f"{symbol}_historical_data"
+            combined_data = []
 
-        for offset in p_bar(OFFSETS, desc="Fetching backfill data", ncols=100):
-            logger.info(f"Fetching backfill data for offset {offset} for symbol: {symbol}")
-            url = "http://api.marketstack.com/v1/eod"
-            params = {
-                "access_key": access_key,
-                "symbols": symbol,
-                "limit": config.limit,
-                "offset": offset,
-            }
-            try:
-                response = requests.get(url, params=params)
-                response.raise_for_status()
-                
-                if response.status_code == 200:
-                    data_backfill = response.json()
-                    #logger.debug(f"Data for offset {offset}: {data_backfill}")
-                    ready_data = process_data(data_backfill)
+            for offset in p_bar(OFFSETS, desc="Fetching backfill data", ncols=100):
+                logger.info(f"Fetching backfill data for offset {offset} for symbol: {symbol}")
+                url = "http://api.marketstack.com/v1/eod"
+                params = {
+                    "access_key": access_key,
+                    "symbols": symbol,
+                    "limit": config.limit,
+                    "offset": offset,
+                }
+                try:
+                    response = requests.get(url, params=params)
+                    response.raise_for_status()
                     
-                    if ready_data is None:
-                        logger.warning(f"No data returned for offset {offset} for symbol: {symbol}")
-                        continue
+                    if response.status_code == 200:
+                        data_backfill = response.json()
+                        #logger.debug(f"Data for offset {offset}: {data_backfill}")
+                        ready_data = process_data(data_backfill)
+                        
+                        if ready_data is None:
+                            logger.warning(f"No data returned for offset {offset} for symbol: {symbol}")
+                            continue
+                        else:
+                            combined_data.extend([ready_data] if isinstance(ready_data, dict) else ready_data)
+                            return False
                     else:
-                        combined_data.extend([ready_data] if isinstance(ready_data, dict) else ready_data)
-                else:
-                    logger.error(f"Error fetching data for offset {offset}: {response.text}")
-                    return None
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Error fetching data for offset {offset} for symbol: {symbol}: {e}")
-                continue
+                        logger.error(f"Error fetching data for offset {offset}: {response.text}")
+                        return None
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"Error fetching data for offset {offset} for symbol: {symbol}: {e}")
+                    continue
+        while not True:
+            logger.info(f"Data fetched for {symbol}. Processing technical indicators.")
+            processed_data = calculate_technical_indicators(combined_data)
+            logger.info(f"Processed technical indicators for {symbol}")
+            filename = f"{CACHE_KEY_BASE}.csv"
+            logger.info(f"Uploading processed data for {symbol} to Azure Blob Storage.")
+            try:
+                ConnectToAzure(fileName=filename, data=processed_data)
+                logger.info(f"Data uploaded for {symbol}")
+            except Exception as e:
+                logger.error(f"Error uploading data to Azure Blob Storage: {e}")
+                return None
         
-        # Debug combined data before calculating technical indicators
-        #logger.debug(f"Combined data before processing technical indicators: {combined_data}")
-        processed_data = calculate_technical_indicators(combined_data)
-        logger.info(f"Processed technical indicators for {symbol}")
-        return processed_data if len(processed_data) > 1 else processed_data[0]
-    
     else:
         logger.error(f"Invalid data source: {config.data_source}")
         return None
