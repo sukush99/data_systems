@@ -7,6 +7,8 @@ import pandas as pd
 from tqdm import tqdm as p_bar
 from azure_comp.connection import ConnectToAzure
 from azure_comp.azure_sql import MainModel
+from dim_symbol_api import APIModel
+
 
 
 def get_today_timestamp_ms():
@@ -68,7 +70,6 @@ def fetch_stock_data(access_key: str, symbol: str):
         else:
             # Fetch historical data
             histo_data = db.get_200_for_live(symbol)
-            breakpoint()
             url = "http://api.marketstack.com/v1/eod/latest"
             params = {"access_key": access_key, "symbols": symbol}
             try:
@@ -103,6 +104,9 @@ def fetch_stock_data(access_key: str, symbol: str):
             logger.info(f"Symbol {symbol} already exists in the database.")
             return None
         else:
+            api = APIModel()
+            api.get_symbol_exchange_info(symbol, access_key)
+            breakpoint()
             OFFSETS = config.offsets if hasattr(config, "offsets") else [1, 92, 183, 274]
             CACHE_KEY_BASE = f"{symbol}_historical_data"
             combined_data = []
@@ -164,7 +168,10 @@ def fetch_stock_data(access_key: str, symbol: str):
             #     success = False
             #TODO: call dim_symbol filer
             # FillDimSymbolTable(symbol)
+            #get_symbol_info(symbol: str, api_key: str) -> dict:
             db.insert_fact_ohlc(processed_data)
+            # filling in the symbol and exchange tables
+            
             break
     else:
         logger.error(f"Invalid data source: {config.data_source}")

@@ -92,25 +92,49 @@ class MainModel:
             logger.error(f"Error checking if symbol exists: {e}")
             return False
 
-    def insert_dim_symbol(self, data: list):
-        COLUMN_NAMES = ("symbol_id", "symbol_name", "cik", "isin", "employer_id", "series_id", "item_type", "sector", "industry", "sic_code", "sic_name"
-        )
+    
+        COLUMN_NAMES_EXCHANGE = ("exchange_id","exchange_name","acronym","country_code","city","market_category_code","exchange_status")
+        COLUMN_NAMES_SYMBOL = ("symbol_id","symbol_name","cik","isin","employer_id","series_id","item_type","sector","industry","sic_code","sic_name")
         try:
             with self.get_conn() as conn:
                 crsr = conn.cursor()
-                placeholders = ", ".join(["?"] * len(COLUMN_NAMES))
-                insert_query = f"INSERT INTO dim_symbol ({', '.join(COLUMN_NAMES)}) VALUES ({placeholders})"
+                placeholders = ", ".join(["?"] * len(COLUMN_NAMES_SYMBOL))
+                insert_query = f"INSERT INTO dim_symbol ({', '.join(COLUMN_NAMES_SYMBOL)}) VALUES ({placeholders})"
+                values = []
+                for x in range(len(symbol_data)-1):
+                    values.append(symbol_data[i])
+                crsr.execute(insert_query, values)  
+                conn.commit()
+                conn.close()
+                logger.info('Data inserted successfully')
+                return True
+        except Exception as e:
+            logger.error('Error inserting data')
+            logger.error(e)
+
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                placeholders = ", ".join(["?"] * len(COLUMN_NAMES_EXCHANGE))
+                insert_query = f"INSERT INTO dim_exchange ({', '.join(COLUMN_NAMES_EXCHANGE)}) VALUES ({placeholders})"
                 
-                with p_bar(total=len(data), desc="Inserting Symbol Data", unit="rows", bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
-                    for item in data:
-                        values = [item[col] for col in COLUMN_NAMES]
+                with p_bar(total=len(exchange_data), desc="Inserting exchange_data", unit="rows", bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
+                    for item in exchange_data:
+                        # Check that each item is a dict; otherwise handle or raise an error
+                        if not isinstance(item, dict):
+                            raise ValueError("Each item in exchange_data must be a dictionary")
+                        values = [item[col] for col in COLUMN_NAMES_EXCHANGE]
+                        # Handle NaN values
+                        for i in range(len(values)):
+                            if isinstance(values[i], float) and math.isnan(values[i]):
+                                values[i] = None  # Replace NaN with None (SQL NULL)
                         crsr.execute(insert_query, values)
                         pbar.update(1)
                 conn.commit()
-                logger.info('Data inserted successfully')
+                logger.info('Exchange data inserted successfully')
         except Exception as e:
-            logger.error('Error inserting data')
-            logger.error(e) 
+            logger.error('Error inserting exchange data')
+            logger.error(e)
 
     def check_if_exixts_today(self, symbol_id: str, today_ms : int) -> bool:
         try:
@@ -140,3 +164,62 @@ class MainModel:
             logger.error(f"Error getting data: {e}")
             return []
 
+    def insert_symbol_exchange(self, symbol_data: list, exchange_data: list):
+        COLUMN_NAMES_EXCHANGE = (
+            "exchange_ticker_id", "exchange_id", "exchange_name", "acronym", 
+            "country_code", "city", "market_category_code", "exchange_status"
+        )
+        COLUMN_NAMES_SYMBOL = (
+            "symbol_id", "symbol_name", "cik", "isin", 
+            "ein_employer_id", "series_id", "item_type", "sector", 
+            "industry", "sic_code", "sic_name"
+        )
+        
+        # Insert symbol data
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                placeholders = ", ".join(["?"] * len(COLUMN_NAMES_SYMBOL))
+                insert_query = f"INSERT INTO dim_symbol ({', '.join(COLUMN_NAMES_SYMBOL)}) VALUES ({placeholders})"
+                # Loop over each row in symbol_data (assumed to be dicts)
+                for row in symbol_data:
+                    values = [row.get(col) for col in COLUMN_NAMES_SYMBOL]
+                    # Handle NaN values (replace with None)
+                    for i in range(len(values)):
+                        if isinstance(values[i], float) and math.isnan(values[i]):
+                            values[i] = None
+                    crsr.execute(insert_query, values)
+                conn.commit()
+                logger.info('Symbol data inserted successfully')
+        except Exception as e:
+            logger.error('Error inserting symbol data')
+            logger.error(e)
+        
+        # Normalize exchange_data: if it's a dict, wrap it in a list.
+        if isinstance(exchange_data, dict):
+            exchange_data = [exchange_data]
+        
+        # Insert exchange data
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                placeholders = ", ".join(["?"] * len(COLUMN_NAMES_EXCHANGE))
+                insert_query = f"INSERT INTO dim_exchange ({', '.join(COLUMN_NAMES_EXCHANGE)}) VALUES ({placeholders})"
+                
+                with p_bar(total=len(exchange_data), desc="Inserting exchange_data", unit="rows", 
+                        bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
+                    for item in exchange_data:
+                        if not isinstance(item, dict):
+                            raise ValueError("Each item in exchange_data must be a dictionary")
+                        values = [item.get(col) for col in COLUMN_NAMES_EXCHANGE]
+                        # Handle NaN values (replace with None)
+                        for i in range(len(values)):
+                            if isinstance(values[i], float) and math.isnan(values[i]):
+                                values[i] = None
+                        crsr.execute(insert_query, values)
+                        pbar.update(1)
+                conn.commit()
+                logger.info('Exchange data inserted successfully')
+        except Exception as e:
+            logger.error('Error inserting exchange data')
+            logger.error(e)
