@@ -1,7 +1,7 @@
 import os, uuid
 from azure.storage.blob import BlobServiceClient, BlobClient, ContainerClient
 from azure.identity import DefaultAzureCredential
-from azure_conn.azure_config import config
+from azure_comp.azure_config import config
 import pandas as pd
 
 

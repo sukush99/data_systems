@@ -5,7 +5,8 @@ from config import config
 from TA_addon import calculate_technical_indicators
 import pandas as pd
 from tqdm import tqdm as p_bar
-from azure_conn.connection import ConnectToAzure
+from azure_comp.connection import ConnectToAzure
+from azure_comp.azure_sql import MainModel
 
 def process_data(data: dict):
     grouped_data = []
@@ -20,10 +21,13 @@ def process_data(data: dict):
         
         timestamp_ms = int(date_obj.timestamp() * 1000)
         grouped_data.append({
-            "open": stock_data["open"],
-            "high": stock_data["high"],
-            "low": stock_data["low"],
-            "close": stock_data["close"],
+            "symbol_id": stock_data["symbol"],
+            "timestamp_ms": timestamp_ms,
+            "exchange_id": stock_data["exchange"],
+            "_open": stock_data["open"],
+            "_high": stock_data["high"],
+            "_low": stock_data["low"],
+            "_close": stock_data["close"],
             "volume": stock_data["volume"],
             "adj_high": stock_data["adj_high"],
             "adj_low": stock_data["adj_low"],
@@ -32,10 +36,6 @@ def process_data(data: dict):
             "adj_volume": stock_data["adj_volume"],
             "split_factor": stock_data["split_factor"],
             "dividend": stock_data["dividend"],
-            "symbol": stock_data["symbol"],
-            "exchange": stock_data["exchange"],
-            "timestamp_ms": timestamp_ms,
-            "date": stock_data["date"],
         })
     
     if not grouped_data:
@@ -68,11 +68,13 @@ def fetch_stock_data(access_key: str, symbol: str):
             return None
     
     elif config.data_source == "backfill":
+        #inintialize the model
+        db = MainModel()
+        debug = True
         #TODO: first check if the archivce folder has the historical data fill
-        blob_exists = check_archive(f"{symbol}_historical_data.csv")
-        if blob_exists:
-            logger.info(f"Data already exists for {symbol}. Skipping backfill.")
-            return True
+
+        if debug == False:
+            None
         else:
             OFFSETS = config.offsets if hasattr(config, "offsets") else [1, 92, 183, 274]
             CACHE_KEY_BASE = f"{symbol}_historical_data"
@@ -87,40 +89,54 @@ def fetch_stock_data(access_key: str, symbol: str):
                     "limit": config.limit,
                     "offset": offset,
                 }
-                try:
-                    response = requests.get(url, params=params)
-                    response.raise_for_status()
-                    
-                    if response.status_code == 200:
-                        data_backfill = response.json()
-                        #logger.debug(f"Data for offset {offset}: {data_backfill}")
-                        ready_data = process_data(data_backfill)
+                retries = 4
+                for attempt in range(1, retries + 1):
+                    try:
+                        response = requests.get(url, params=params)
+                        response.raise_for_status()
                         
-                        if ready_data is None:
-                            logger.warning(f"No data returned for offset {offset} for symbol: {symbol}")
-                            continue
+                        if response.status_code == 200:
+                            data_backfill = response.json()
+                            ready_data = process_data(data_backfill)
+                            
+                            if ready_data is None:
+                                logger.warning(f"No data returned for offset {offset} for symbol: {symbol}")
+                            else:
+                                logger.info(f"Received data from process_data as expected")
+                                combined_data.extend([ready_data] if isinstance(ready_data, dict) else ready_data)
+                                
+                                Add_to_sql = True
+                            break  # Successful response, break out of retry loop
                         else:
-                            combined_data.extend([ready_data] if isinstance(ready_data, dict) else ready_data)
-                            return False
-                    else:
-                        logger.error(f"Error fetching data for offset {offset}: {response.text}")
-                        return None
-                except requests.exceptions.RequestException as e:
-                    logger.error(f"Error fetching data for offset {offset} for symbol: {symbol}: {e}")
-                    continue
-        while not True:
+                            logger.error(f"Error fetching data for offset {offset}: {response.text}")
+                    except requests.exceptions.RequestException as e:
+                        logger.error(f"Attempt {attempt} failed: Error fetching data for offset {offset} for symbol: {symbol}: {e}")
+                        if attempt == retries:
+                            logger.error(f"Failed to fetch data for offset {offset} after {retries} attempts.")
+
+        while Add_to_sql:
             logger.info(f"Data fetched for {symbol}. Processing technical indicators.")
             processed_data = calculate_technical_indicators(combined_data)
             logger.info(f"Processed technical indicators for {symbol}")
-            filename = f"{CACHE_KEY_BASE}.csv"
-            logger.info(f"Uploading processed data for {symbol} to Azure Blob Storage.")
-            try:
-                ConnectToAzure(fileName=filename, data=processed_data)
-                logger.info(f"Data uploaded for {symbol}")
-            except Exception as e:
-                logger.error(f"Error uploading data to Azure Blob Storage: {e}")
-                return None
-        
+            # try:
+            #     api_url = "http://127.0.0.1:8000/insert_fact_ohlc"  #api URL
+
+            #     #send the data to the API
+            #     headers = {"Content-Type": "application/json"}
+            #     response = requests.post(api_url, json=processed_data, headers=headers)
+            #     response.raise_for_status()
+
+            #     if response.json().get("status") == "success":
+            #         logger.info(f"Data added to fact_ohlc_daily table for {symbol}")
+            #         success = True
+            #     else:
+            #         logger.error(f"Error adding data to fact_ohlc_daily table for {symbol}")
+            #         success = False
+            # except requests.exceptions.RequestException as e:
+            #     logger.error(f"Error adding data to fact_ohlc_daily table for {symbol}: {e}")
+            #     success = False
+            db.insert_fact_ohlc(processed_data)
+            break
     else:
         logger.error(f"Invalid data source: {config.data_source}")
         return None

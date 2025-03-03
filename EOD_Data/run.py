@@ -2,6 +2,7 @@ from loguru import logger
 from config import config
 from api_response import fetch_stock_data
 from tqdm import tqdm as p_bar
+from azure_comp.azure_sql import MainModel
 
 def main(
         company_list: list,
@@ -25,7 +26,9 @@ def main(
         logger.info(f"Fetching stock data for company: {company} from source: {data_source}")
         
         try:
-            
+
+            # db = MainModel()
+            # db.get_conn()
             # Fetch stock data
             fetch_stock_data(
                 access_key=config.api_access_key, symbol=company
@@ -38,8 +41,6 @@ def main(
             continue  # Skip to the next company in case of error
         
 
-    # Log the completion of the main function
-    logger.info(f"Completed data fetch for all companies using data source: {data_source}")
 
 
 if __name__ == "__main__":

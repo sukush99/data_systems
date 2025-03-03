@@ -3,11 +3,11 @@ from typing import List, Literal, Optional
 
 class AzureConfig(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file="azure_conn/conn.env", env_file_encoding="utf-8"
+        env_file="azure_comp/conn.env", env_file_encoding="utf-8"
     )
 
     account_storage: str
-    #azure_sql_connection_string: str
+    azure_sql_connection_string: str
     azure_storage_connection_string: str
     username_azure: str
     password_azure: str 
