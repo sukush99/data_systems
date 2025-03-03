@@ -8,6 +8,13 @@ from tqdm import tqdm as p_bar
 from azure_comp.connection import ConnectToAzure
 from azure_comp.azure_sql import MainModel
 
+
+def get_today_timestamp_ms():
+    """Returns the timestamp in milliseconds for the start of today."""
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_timestamp_ms = int(today_start.timestamp() * 1000)
+    return today_timestamp_ms  
+
 def process_data(data: dict):
     grouped_data = []
     logger.info("Processing stock data into structured format.")
@@ -50,31 +57,51 @@ def fetch_stock_data(access_key: str, symbol: str):
     Fetches stock data from marketstack API and processes it.
     """
     all_stock_data = []
-    
+    db = MainModel()
     logger.info(f"Fetching stock data for symbol: {symbol} from source: {config.data_source}")
     
     if config.data_source == "live":
-        url = "http://api.marketstack.com/v1/eod/latest"
-        params = {"access_key": access_key, "symbols": symbol}
-        try:
-            response = requests.get(url, params=params)
-            response.raise_for_status()
-            if response.status_code == 200:
-                data_live = response.json()
-                logger.debug(f"Live data fetched for {symbol}: {data_live}")
-                return process_data(data_live)
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching live data for {symbol}: {e}")
+        today_ms = get_today_timestamp_ms()
+        if db.check_if_exixts_today(symbol, today_ms):
+            logger.info(f"Symbol {symbol} already exists for today.")
             return None
+        else:
+            # Fetch historical data
+            histo_data = db.get_200_for_live(symbol)
+            breakpoint()
+            url = "http://api.marketstack.com/v1/eod/latest"
+            params = {"access_key": access_key, "symbols": symbol}
+            try:
+                response = requests.get(url, params=params)
+                response.raise_for_status()
+                if response.status_code == 200:
+                    data_live = response.json()
+                    logger.debug(f"Live data fetched for {symbol}: {data_live}")
+                    # Process the data
+                    today_data =  process_data(data_live)
+                    # Combine historical and today's data
+                    histo_and_today = histo_data + [today_data]
+                    # Calculate technical indicators
+                    processed_data = calculate_technical_indicators(histo_and_today)
+                    #get only today's record.
+                    today_processed_data = processed_data[-1]
+                    logger.info(f"Processed technical indicators for {symbol}")
+                    try:
+                        db.insert_fact_ohlc([today_processed_data])
+                        logger.info(f"Data added to fact_ohlc_daily table for {symbol}")
+                    except Exception as e:
+                        logger.error(f"Error adding data to fact_ohlc_daily table for {symbol}: {e}")
+                        return None
+                    return None
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error fetching live data for {symbol}: {e}")
+                return None
     
     elif config.data_source == "backfill":
-        #inintialize the model
-        db = MainModel()
-        debug = True
-        #TODO: first check if the archivce folder has the historical data fill
-
-        if debug == False:
-            None
+        
+        if db.does_symbol_exists(symbol):
+            logger.info(f"Symbol {symbol} already exists in the database.")
+            return None
         else:
             OFFSETS = config.offsets if hasattr(config, "offsets") else [1, 92, 183, 274]
             CACHE_KEY_BASE = f"{symbol}_historical_data"
@@ -135,6 +162,8 @@ def fetch_stock_data(access_key: str, symbol: str):
             # except requests.exceptions.RequestException as e:
             #     logger.error(f"Error adding data to fact_ohlc_daily table for {symbol}: {e}")
             #     success = False
+            #TODO: call dim_symbol filer
+            # FillDimSymbolTable(symbol)
             db.insert_fact_ohlc(processed_data)
             break
     else:

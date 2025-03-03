@@ -5,6 +5,7 @@ from azure_comp.azure_config import config
 from loguru import logger
 import math
 from tqdm import tqdm as p_bar
+import decimal
 # Configure logging (if needed)
 logger.add("logfile.log", level="INFO")
 
@@ -23,6 +24,16 @@ class MainModel:
     def get_conn(self):
         conn = pyodbc.connect(self.connection_string)
         return conn
+
+    def convert_decimals(self, obj):
+        if isinstance(obj, dict):
+            return {k: self.convert_decimals(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self.convert_decimals(item) for item in obj]
+        elif isinstance(obj, decimal.Decimal):
+            return float(obj)  # Convert Decimal to float
+        else:
+            return obj
 
     def insert_fact_ohlc(self, data: list):
         COLUMN_NAMES = (
@@ -67,3 +78,65 @@ class MainModel:
         except Exception as e:
             logger.error('Error inserting data')
             logger.error(e)
+
+    def does_symbol_exists(self, symbol_id: str) -> bool:
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute("SELECT distinct(symbol_id) FROM fact_ohlc_daily WHERE symbol_id = ?", symbol_id)
+                if crsr.fetchone():
+                    return True
+                else:
+                    return False
+        except Exception as e:
+            logger.error(f"Error checking if symbol exists: {e}")
+            return False
+
+    def insert_dim_symbol(self, data: list):
+        COLUMN_NAMES = ("symbol_id", "symbol_name", "cik", "isin", "employer_id", "series_id", "item_type", "sector", "industry", "sic_code", "sic_name"
+        )
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                placeholders = ", ".join(["?"] * len(COLUMN_NAMES))
+                insert_query = f"INSERT INTO dim_symbol ({', '.join(COLUMN_NAMES)}) VALUES ({placeholders})"
+                
+                with p_bar(total=len(data), desc="Inserting Symbol Data", unit="rows", bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
+                    for item in data:
+                        values = [item[col] for col in COLUMN_NAMES]
+                        crsr.execute(insert_query, values)
+                        pbar.update(1)
+                conn.commit()
+                logger.info('Data inserted successfully')
+        except Exception as e:
+            logger.error('Error inserting data')
+            logger.error(e) 
+
+    def check_if_exixts_today(self, symbol_id: str, today_ms : int) -> bool:
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute(f"SELECT top(1) (timestamp_ms) FROM fact_ohlc_daily WHERE  symbol_id = '{symbol_id}' order by timestamp_ms desc")
+                db_date = crsr.fetchone()
+                if db_date == today_ms:
+                    return True
+                else:
+                    return False
+        except Exception as e:
+            logger.error(f"Error checking if symbol exists: {e}")
+            return False
+    
+    def get_200_for_live(self, symbol_id: str) -> list:
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute(f"SELECT top(200) * FROM fact_ohlc_daily WHERE symbol_id = '{symbol_id}' order by timestamp_ms desc")
+                rows = crsr.fetchall()
+                columns = [column[0] for column in crsr.description]
+                result = [dict(zip(columns, row)) for row in rows]
+                result_converted = self.convert_decimals(result)
+                return result_converted
+        except Exception as e:
+            logger.error(f"Error getting data: {e}")
+            return []
+
