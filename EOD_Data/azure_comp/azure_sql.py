@@ -223,3 +223,31 @@ class MainModel:
         except Exception as e:
             logger.error('Error inserting exchange data')
             logger.error(e)
+
+
+    def insert_timestamp(self, timestamp: list):
+        COLUMN_NAMES = (
+            "timestamp_ms", "date", "day_of_the_week", "month", "year", "quarter", "fiscal_year", "is_weekend",
+            "is_public_holiday"
+        )
+
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                placeholders = ", ".join(["?"] * len(COLUMN_NAMES))
+                insert_query = f"INSERT INTO dim_timestamp ({', '.join(COLUMN_NAMES)}) VALUES ({placeholders})"
+                
+                with p_bar(total=len(timestamp), desc="Inserting OHLC timestamp", unit="rows", bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
+                    for item in timestamp:
+                        values = [item[col] for col in COLUMN_NAMES]
+                        # Handle NaN values
+                        for i in range(len(values)):
+                            if isinstance(values[i], float) and math.isnan(values[i]):
+                                values[i] = None  # Replace NaN with None (NULL)
+                        crsr.execute(insert_query, values)
+                        pbar.update(1)
+                conn.commit()
+                logger.info('timestamp inserted successfully')
+        except Exception as e:
+            logger.error('Error inserting timestamp')
+            logger.error(e)

@@ -16,9 +16,7 @@ dependencies = [
     "tqdm>=4.67.1",
     "azure-identity>=1.20.0",
     "azure-storage-blob>=12.24.1",
-    "sqlalchemy>=2.0.38",
-    "sqlalchemy-utils>=0.41.2",
     "pyodbc>=5.2.0",
-    "fastapi>=0.115.11",
     "uvicorn>=0.34.0",
+    "holidays>=0.68",
 ]

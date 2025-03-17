@@ -8,6 +8,7 @@ from tqdm import tqdm as p_bar
 from azure_comp.connection import ConnectToAzure
 from azure_comp.azure_sql import MainModel
 from dim_symbol_api import APIModel
+from dim_timestamp import TimestampHandler
 
 
 
@@ -60,43 +61,40 @@ def fetch_stock_data(access_key: str, symbol: str):
     """
     all_stock_data = []
     db = MainModel()
+    timestamp_handler = TimestampHandler()
     logger.info(f"Fetching stock data for symbol: {symbol} from source: {config.data_source}")
     
     if config.data_source == "live":
-        today_ms = get_today_timestamp_ms()
-        if db.check_if_exixts_today(symbol, today_ms):
-            logger.info(f"Symbol {symbol} already exists for today.")
-            return None
-        else:
-            # Fetch historical data
-            histo_data = db.get_200_for_live(symbol)
-            url = "http://api.marketstack.com/v1/eod/latest"
-            params = {"access_key": access_key, "symbols": symbol}
-            try:
-                response = requests.get(url, params=params)
-                response.raise_for_status()
-                if response.status_code == 200:
-                    data_live = response.json()
-                    logger.debug(f"Live data fetched for {symbol}: {data_live}")
-                    # Process the data
-                    today_data =  process_data(data_live)
-                    # Combine historical and today's data
-                    histo_and_today = histo_data + [today_data]
-                    # Calculate technical indicators
-                    processed_data = calculate_technical_indicators(histo_and_today)
-                    #get only today's record.
-                    today_processed_data = processed_data[-1]
-                    logger.info(f"Processed technical indicators for {symbol}")
-                    try:
-                        db.insert_fact_ohlc([today_processed_data])
-                        logger.info(f"Data added to fact_ohlc_daily table for {symbol}")
-                    except Exception as e:
-                        logger.error(f"Error adding data to fact_ohlc_daily table for {symbol}: {e}")
-                        return None
+        # Fetch historical data
+        histo_data = db.get_200_for_live(symbol)
+        url = "http://api.marketstack.com/v1/eod/latest"
+        params = {"access_key": access_key, "symbols": symbol}
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            if response.status_code == 200:
+                data_live = response.json()
+                logger.debug(f"Live data fetched for {symbol}: {data_live}")
+                # Process the data
+                today_data =  process_data(data_live)
+                timestamp_handler.timestamp_handler(today_data["timestamp_ms"])
+                # Combine historical and today's data
+                histo_and_today = histo_data + [today_data]
+                # Calculate technical indicators
+                processed_data = calculate_technical_indicators(histo_and_today)
+                #get only today's record.
+                today_processed_data = processed_data[-1]
+                logger.info(f"Processed technical indicators for {symbol}")
+                try:
+                    db.insert_fact_ohlc([today_processed_data])
+                    logger.info(f"Data added to fact_ohlc_daily table for {symbol}")
+                except Exception as e:
+                    logger.error(f"Error adding data to fact_ohlc_daily table for {symbol}: {e}")
                     return None
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Error fetching live data for {symbol}: {e}")
                 return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching live data for {symbol}: {e}")
+            return None
     
     elif config.data_source == "backfill":
         
@@ -105,8 +103,9 @@ def fetch_stock_data(access_key: str, symbol: str):
             return None
         else:
             api = APIModel()
+            #TODO: insert timestamp
             api.get_symbol_exchange_info(symbol, access_key)
-            breakpoint()
+            #breakpoint()
             OFFSETS = config.offsets if hasattr(config, "offsets") else [1, 92, 183, 274]
             CACHE_KEY_BASE = f"{symbol}_historical_data"
             combined_data = []
@@ -129,7 +128,13 @@ def fetch_stock_data(access_key: str, symbol: str):
                         if response.status_code == 200:
                             data_backfill = response.json()
                             ready_data = process_data(data_backfill)
-                            
+                            # try: 
+                            #     for data in ready_data:
+                            #         timestamp_handler.timestamp_handler(data["timestamp_ms"])
+                            # except Exception as e:
+                            #     logger.error(f"No data returned for offset {offset} for symbol: {symbol}")
+                            #     continue
+
                             if ready_data is None:
                                 logger.warning(f"No data returned for offset {offset} for symbol: {symbol}")
                             else:
@@ -169,6 +174,7 @@ def fetch_stock_data(access_key: str, symbol: str):
             #TODO: call dim_symbol filer
             # FillDimSymbolTable(symbol)
             #get_symbol_info(symbol: str, api_key: str) -> dict:
+
             db.insert_fact_ohlc(processed_data)
             # filling in the symbol and exchange tables
             
