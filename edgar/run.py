@@ -6,7 +6,7 @@ from loguru import logger
 from edgar import *
 from tqdm import tqdm as p_bar
 
-def process_company(company_symbol, container_client, form="10-K", filing_date="2020-01-01:"):
+def process_company(company_symbol, container_client, form="10-K", filing_date="2019-01-01:"):
     """
     Process filings for a single company and upload the resulting CSV files to Azure Blob Storage.
 
@@ -31,7 +31,6 @@ def process_company(company_symbol, container_client, form="10-K", filing_date="
     """
     logger.info(f"\nProcessing {company_symbol} filings...")
     filings = Company(company_symbol).get_filings(form=form, filing_date=filing_date)
-
     # Use a defaultdict to group DataFrames by statement name.
     statements_dict = defaultdict(list)
     for filing_index in p_bar(range(0, len(filings), 2), desc=f"{company_symbol}: Processing Filings"):
@@ -40,35 +39,38 @@ def process_company(company_symbol, container_client, form="10-K", filing_date="
         except Exception as e:
             logger.debug(f"Error retrieving xbrl data for filing {filing_index} of {company_symbol}: {e}")
             continue
+        
+        try:
+            statements = xbrl_data.statements
+            for statement_index, statement in enumerate(p_bar(statements, desc=f"{company_symbol}: Processing Statements", leave=False)):
+                try:
+                    # Convert the statement to a DataFrame.
+                    df = statement.get_dataframe()
+                    # Reset and then set the index to the 'concept' column.
+                    df_no_index = df.reset_index(drop=True)
+                    df_indexed = df_no_index.set_index('concept')
 
-        statements = xbrl_data.statements
-        for statement_index, statement in enumerate(p_bar(statements, desc=f"{company_symbol}: Processing Statements", leave=False)):
-            try:
-                # Convert the statement to a DataFrame.
-                df = statement.get_dataframe()
-                # Reset and then set the index to the 'concept' column.
-                df_no_index = df.reset_index(drop=True)
-                df_indexed = df_no_index.set_index('concept')
+                    # Use the statement name if available; otherwise default to a numbered name.
+                    statement_name = getattr(statement, 'name', None)
+                    if statement_name is None:
+                        statement_name = f"statement_{statement_index}"
+                    else:
+                        # Replace spaces with underscores for a file-friendly name.
+                        statement_name = statement_name.replace(" ", "_")
 
-                # Use the statement name if available; otherwise default to a numbered name.
-                statement_name = getattr(statement, 'name', None)
-                if statement_name is None:
-                    statement_name = f"statement_{statement_index}"
-                else:
-                    # Replace spaces with underscores for a file-friendly name.
-                    statement_name = statement_name.replace(" ", "_")
-
-                # Append the DataFrame to the list for this statement.
-                statements_dict[statement_name].append(df_indexed)
-            except AttributeError as e:
-                logger.debug(f"AttributeError for statement {statement} in filing {filing_index}: {e}")
-                continue
-            except Exception as e:
-                logger.debug(f"General error for statement {statement} in filing {filing_index}: {e}")
-                continue
+                    # Append the DataFrame to the list for this statement.
+                    statements_dict[statement_name].append(df_indexed)
+                except AttributeError as e:
+                    logger.debug(f"AttributeError for statement {statement} in filing {filing_index}: {e}")
+                    continue
+                except Exception as e:
+                    logger.debug(f"General error for statement {statement} in filing {filing_index}: {e}")
+                    continue
+        except Exception as e:
+            logger.debug(f"No statements found in filing {filing_index} of {company_symbol}: {e}")
+            continue
 
     csv_blobs = []
-
     # For each statement group, join the DataFrames and upload as a CSV blob.
     for statement_name, df_list in statements_dict.items():
         if df_list:
@@ -82,7 +84,7 @@ def process_company(company_symbol, container_client, form="10-K", filing_date="
                     rsuffix=f'_{i}'
                 )
             # Define a blob name that includes the company symbol and statement name.
-            blob_path = f"{company_symbol}/{company_symbol}_{statement_name}.csv"
+            blob_path = f"{company_symbol}/{company_symbol}_{statement_name.upper()}.csv"
             # Write the CSV content to an in-memory string buffer.
             csv_buffer = io.StringIO()
             df_joined_outer.to_csv(csv_buffer)
@@ -97,18 +99,22 @@ def process_company(company_symbol, container_client, form="10-K", filing_date="
             logger.debug(f"No DataFrames collected for statement '{statement_name}' in {company_symbol}.")
 
     # Create an index CSV blob that lists all the CSV blob names.
-    index_blob_name = f"{company_symbol}_Index.csv"
-    index_df = pd.DataFrame({"CSV Files": csv_blobs})
-    index_csv_buffer = io.StringIO()
-    index_df.to_csv(index_csv_buffer, index=False)
-    index_csv_data = index_csv_buffer.getvalue()
-    index_blob_client = container_client.get_blob_client(index_blob_name)
-    index_blob_client.upload_blob(index_csv_data, overwrite=True, max_concurrency=4)
-    print(f"Uploaded index blob: {index_blob_name}\n")
-
+    try:
+        index_blob_name = f"{company_symbol}_Index.csv"
+        index_df = pd.DataFrame({"CSV Files": csv_blobs})
+        index_csv_buffer = io.StringIO()
+        index_df.to_csv(index_csv_buffer, index=False)
+        index_csv_data = index_csv_buffer.getvalue()
+        index_blob_client = container_client.get_blob_client(index_blob_name)
+        index_blob_client.upload_blob(index_csv_data, overwrite=True, max_concurrency=4)
+        print(f"Uploaded index blob: {index_blob_name}\n")
+    except Exception as e:
+        logger.error(f"Error uploading index blob for {company_symbol}: {e}")
+        index_blob_name = None
+        
     return csv_blobs, index_blob_name
 
-def process_companies(companies, azure_storage_connection_string, container_name, form="10-K", filing_date="2020-01-01:"):
+def process_companies(companies, azure_storage_connection_string, container_name, form="10-K", filing_date="2019-01-01:"):
     """
     Process one or more companies and upload their CSV files to Azure Blob Storage.
 
