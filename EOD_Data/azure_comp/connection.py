@@ -37,4 +37,3 @@ class ConnectToAzure:
         except Exception as e:
             print(f"Error downloading data from Azure Blob Storage: {e}")
             return False
-
