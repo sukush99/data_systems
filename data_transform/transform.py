@@ -19,7 +19,7 @@ class PrepareTransformData:
         #Transform every thing here
         #1. Transpose the data
         df_transposed = df.T
-      
+
         # Step 2: Set the first row as the new header and remove it from data
         new_header = df_transposed.iloc[0]
         df_transposed = df_transposed[1:]
@@ -49,16 +49,16 @@ class PrepareTransformData:
         # Step 9: Replace NaN values with a placeholder if necessary (e.g., 'NaN')
         df_transposed_grouped = df_transposed_grouped.fillna('NaN')
 
-        
-        df_transposed_grouped.insert(1, 'symbol', 'AAPL')
        
         df_transposed_grouped = df_transposed_grouped[['year'] + [col for col in df_transposed_grouped.columns if col != 'year']]
+
+        df_transposed_grouped.insert(0, 'symbol', company)
 
         df_transposed_grouped = df_transposed_grouped.drop('Year', axis=1, errors='ignore')
         
         column_names = df_transposed_grouped.columns.to_list()
     
-        columns_to_remove = ['symbol', 'year']
+        columns_to_remove = ['symbol', 'year', ]
         
         column_names = [col for col in column_names if col not in columns_to_remove]
         
