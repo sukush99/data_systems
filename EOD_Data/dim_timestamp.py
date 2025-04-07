@@ -47,7 +47,7 @@ class TimestampHandler:
 
         timestamp_table.append({
             "timestamp_ms": timestamp_ms,
-            "date": date_str,
+            "_date": date_str,
             "day_of_the_week": day_of_week_str,
             "month": month,
             "year": year,
@@ -58,7 +58,7 @@ class TimestampHandler:
         })
 
         db = MainModel()
-        logger.info(f"Inserting timestamp in database: {timestamp_ms}")
-        db.insert_timestamp(timestamp=timestamp_table)
+        #logger.info(f"Inserting timestamp in database: {timestamp_ms}")
+        db.insert_timestamp_staging(timestamp=timestamp_table)
 
 

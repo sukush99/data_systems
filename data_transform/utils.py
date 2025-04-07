@@ -149,7 +149,7 @@ def UploadToBlob(container, filename, data):
     Args:
         fileName: The name of the file to be uploaded.
         data: The data to be uploaded.
-    """
+    """ 
     uploadable_data = convert_to_csv(data)
     try:
         blob_service_client = BlobServiceClient.from_connection_string(config.connection_string)

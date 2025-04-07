@@ -32,7 +32,6 @@ class APIModel:
                 data_xch = returned_data.get("stock_exchange", [])
                 logger.debug(f"Data fetched for symbol: {symbol}: {returned_data}")
                 data_xch_format.append({
-                    "exchange_ticker_id": f'({data_xch["mic"]}-{symbol})',
                     "exchange_id": data_xch["mic"],
                     "exchange_name": data_xch["name"],
                     "acronym": data_xch["acronym"],

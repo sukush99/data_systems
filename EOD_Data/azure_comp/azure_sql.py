@@ -58,6 +58,8 @@ class MainModel:
             "R1", "S1", "R2", "S2", "Vortex_Plus", "Vortex_Minus"
         )
 
+        #remove foregin key contraint
+        self.disable_foreign_keys()
         try:
             with self.get_conn() as conn:
                 crsr = conn.cursor()
@@ -75,6 +77,7 @@ class MainModel:
                         pbar.update(1)
                 conn.commit()
                 logger.info('Data inserted successfully')
+
         except Exception as e:
             logger.error('Error inserting data')
             logger.error(e)
@@ -90,51 +93,7 @@ class MainModel:
                     return False
         except Exception as e:
             logger.error(f"Error checking if symbol exists: {e}")
-            return False
-
-    
-        COLUMN_NAMES_EXCHANGE = ("exchange_id","exchange_name","acronym","country_code","city","market_category_code","exchange_status")
-        COLUMN_NAMES_SYMBOL = ("symbol_id","symbol_name","cik","isin","employer_id","series_id","item_type","sector","industry","sic_code","sic_name")
-        try:
-            with self.get_conn() as conn:
-                crsr = conn.cursor()
-                placeholders = ", ".join(["?"] * len(COLUMN_NAMES_SYMBOL))
-                insert_query = f"INSERT INTO dim_symbol ({', '.join(COLUMN_NAMES_SYMBOL)}) VALUES ({placeholders})"
-                values = []
-                for x in range(len(symbol_data)-1):
-                    values.append(symbol_data[i])
-                crsr.execute(insert_query, values)  
-                conn.commit()
-                conn.close()
-                logger.info('Data inserted successfully')
-                return True
-        except Exception as e:
-            logger.error('Error inserting data')
-            logger.error(e)
-
-        try:
-            with self.get_conn() as conn:
-                crsr = conn.cursor()
-                placeholders = ", ".join(["?"] * len(COLUMN_NAMES_EXCHANGE))
-                insert_query = f"INSERT INTO dim_exchange ({', '.join(COLUMN_NAMES_EXCHANGE)}) VALUES ({placeholders})"
-                
-                with p_bar(total=len(exchange_data), desc="Inserting exchange_data", unit="rows", bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
-                    for item in exchange_data:
-                        # Check that each item is a dict; otherwise handle or raise an error
-                        if not isinstance(item, dict):
-                            raise ValueError("Each item in exchange_data must be a dictionary")
-                        values = [item[col] for col in COLUMN_NAMES_EXCHANGE]
-                        # Handle NaN values
-                        for i in range(len(values)):
-                            if isinstance(values[i], float) and math.isnan(values[i]):
-                                values[i] = None  # Replace NaN with None (SQL NULL)
-                        crsr.execute(insert_query, values)
-                        pbar.update(1)
-                conn.commit()
-                logger.info('Exchange data inserted successfully')
-        except Exception as e:
-            logger.error('Error inserting exchange data')
-            logger.error(e)
+       
 
     def check_if_exixts_today(self, symbol_id: str, today_ms : int) -> bool:
         try:
@@ -165,9 +124,10 @@ class MainModel:
             return []
 
     def insert_symbol_exchange(self, symbol_data: list, exchange_data: list):
+
         COLUMN_NAMES_EXCHANGE = (
-            "exchange_ticker_id", "exchange_id", "exchange_name", "acronym", 
-            "country_code", "city", "market_category_code", "exchange_status"
+                "exchange_id", "exchange_name", "acronym", 
+                "country_code", "city", "market_category_code", "exchange_status"
         )
         COLUMN_NAMES_SYMBOL = (
             "symbol_id", "symbol_name", "cik", "isin", 
@@ -209,33 +169,40 @@ class MainModel:
                 with p_bar(total=len(exchange_data), desc="Inserting exchange_data", unit="rows", 
                         bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
                     for item in exchange_data:
-                        if not isinstance(item, dict):
-                            raise ValueError("Each item in exchange_data must be a dictionary")
-                        values = [item.get(col) for col in COLUMN_NAMES_EXCHANGE]
-                        # Handle NaN values (replace with None)
-                        for i in range(len(values)):
-                            if isinstance(values[i], float) and math.isnan(values[i]):
-                                values[i] = None
-                        crsr.execute(insert_query, values)
-                        pbar.update(1)
+                        does_exchange_exists = self.does_exchange_exists(item.get("exchange_id"))
+                        if does_exchange_exists == False:
+                            logger.info(f" echange_id {item.get('exchange_id')} does not exist in the database")
+                            if not isinstance(item, dict):
+                                raise ValueError("Each item in exchange_data must be a dictionary")
+                            values = [item.get(col) for col in COLUMN_NAMES_EXCHANGE]
+                            # Handle NaN values (replace with None)
+                            for i in range(len(values)):
+                                if isinstance(values[i], float) and math.isnan(values[i]):
+                                    values[i] = None
+                            crsr.execute(insert_query, values)
+                            logger.info(f"Exchange data inserted successfully for {item.get('exchange_id')}")
+                            pbar.update(1)
+                        else:
+                            logger.info(f"Exchange data for {item.get('exchange_id')} already exists in the database")
+                            pbar.update(1)
+                            continue
                 conn.commit()
-                logger.info('Exchange data inserted successfully')
+                
         except Exception as e:
             logger.error('Error inserting exchange data')
             logger.error(e)
 
 
-    def insert_timestamp(self, timestamp: list):
+    def insert_timestamp_staging(self, timestamp: list):
         COLUMN_NAMES = (
-            "timestamp_ms", "date", "day_of_the_week", "month", "year", "quarter", "fiscal_year", "is_weekend",
+            "timestamp_ms", "_date", "day_of_the_week", "month", "year", "quarter", "fiscal_year", "is_weekend",
             "is_public_holiday"
         )
-
         try:
             with self.get_conn() as conn:
                 crsr = conn.cursor()
                 placeholders = ", ".join(["?"] * len(COLUMN_NAMES))
-                insert_query = f"INSERT INTO dim_timestamp ({', '.join(COLUMN_NAMES)}) VALUES ({placeholders})"
+                insert_query = f"INSERT INTO dim_timestamp_staging ({', '.join(COLUMN_NAMES)}) VALUES ({placeholders})"
                 
                 with p_bar(total=len(timestamp), desc="Inserting OHLC timestamp", unit="rows", bar_format="{l_bar}{bar:50}{r_bar}{bar:-50b}") as pbar:
                     for item in timestamp:
@@ -247,7 +214,56 @@ class MainModel:
                         crsr.execute(insert_query, values)
                         pbar.update(1)
                 conn.commit()
-                logger.info('timestamp inserted successfully')
+                #logger.info('timestamp inserted successfully')
         except Exception as e:
             logger.error('Error inserting timestamp')
+            logger.error(e)
+    
+    def does_exchange_exists(self, exchange_id: str) -> bool:
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute("SELECT distinct(exchange_id) FROM fact_ohlc_daily WHERE exchange_id = ?", exchange_id)
+                if crsr.fetchone():
+                    return True
+                else:
+                    return False
+        except Exception as e:
+            logger.error(f"Error checking if symbol exists: {e}")
+            return False
+
+    def timestamp_staging_to_dim(self):
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute("INSERT INTO dim_timestamp SELECT DISTINCT * FROM dim_timestamp_staging")
+                logger.info('Data moved from staging to dim_timestamp')
+                crsr.execute("TRUNCATE TABLE dim_timestamp_staging")
+                logger.info('Data truncated from staging table')
+                conn.commit()
+                logger.info('Data inserted successfully')
+        except Exception as e:
+            logger.error('Error inserting data')
+            logger.error(e)
+
+    def disable_foreign_keys(self):
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute("ALTER TABLE fact_ohlc_daily NOCHECK CONSTRAINT FK_fact_ohlc_daily_dim_timestamp")
+                logger.info('Foreign keys disabled')
+                conn.commit()
+        except Exception as e:
+            logger.error('Error disabling foreign keys')
+            logger.error(e)
+
+    def enable_foreign_keys(self):
+        try:
+            with self.get_conn() as conn:
+                crsr = conn.cursor()
+                crsr.execute("ALTER TABLE fact_ohlc_daily CHECK CONSTRAINT FK_fact_ohlc_daily_dim_timestamp")
+                logger.info('Foreign keys enabled')
+                conn.commit()
+        except Exception as e:
+            logger.error('Error enabling foreign keys')
             logger.error(e)

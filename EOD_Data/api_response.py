@@ -118,7 +118,7 @@ def fetch_stock_data(access_key: str, symbol: str):
                     "symbols": symbol,
                     "limit": config.limit,
                     "offset": offset,
-                }
+                }  # this check is to only make the timestamp dump once
                 retries = 4
                 for attempt in range(1, retries + 1):
                     try:
@@ -128,13 +128,12 @@ def fetch_stock_data(access_key: str, symbol: str):
                         if response.status_code == 200:
                             data_backfill = response.json()
                             ready_data = process_data(data_backfill)
-                            # try: 
-                            #     for data in ready_data:
-                            #         timestamp_handler.timestamp_handler(data["timestamp_ms"])
-                            # except Exception as e:
-                            #     logger.error(f"No data returned for offset {offset} for symbol: {symbol}")
-                            #     continue
-
+                            try: 
+                                for data in ready_data:
+                                    timestamp_handler.timestamp_handler(data["timestamp_ms"])
+                            except Exception as e:
+                                logger.error(f"No data returned for offset {offset} for symbol: {symbol}")
+                                continue
                             if ready_data is None:
                                 logger.warning(f"No data returned for offset {offset} for symbol: {symbol}")
                             else:

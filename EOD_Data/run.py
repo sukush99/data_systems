@@ -27,21 +27,26 @@ def main(
         
         try:
 
-            # db = MainModel()
+
             # db.get_conn()
             # Fetch stock data
             fetch_stock_data(
                 access_key=config.api_access_key, symbol=company
             )
-
+            
         
         except Exception as e:
             # Log error if something goes wrong
             logger.error(f"Error fetching stock data for company: {company} from source: {data_source}. Error: {str(e)}")
             continue  # Skip to the next company in case of error
         
-
-
+    db = MainModel()
+    # move data from dim_timestamp_staging to dim_timestamp
+    db.timestamp_staging_to_dim()
+    logger.info(f"Data has been moved from dim_timestamp_staging to dim_timestamp")
+    #enable foreign key constraint
+    db.enable_foreign_keys()
+    logger.info(f"Foreign key constraints have been enabled")
 
 if __name__ == "__main__":
     # Set up logging configuration to log to file and console
